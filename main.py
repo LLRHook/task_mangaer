@@ -4,6 +4,12 @@ import calendar
 import time
 import pandas as pd
 import win32gui
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email import encoders
+from password import email
 
 def get_active_window_title():
     window = win32gui.GetForegroundWindow()
@@ -32,6 +38,30 @@ def get_file_path():
     filename = f'{day}_{now.strftime("%H-%M-%S")}_usage.xlsx'
     return os.path.join(directory, filename)
 
+def send_email_with_attachment(sender_email, receiver_email, subject, body, filename, server, port, login, app_password):
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = receiver_email
+    msg['Subject'] = subject
+
+    msg.attach(MIMEText(body, 'plain'))
+
+    with open(filename, "rb") as attachment:
+        part = MIMEBase('application', 'octet-stream')
+        part.set_payload(attachment.read())
+
+    encoders.encode_base64(part)
+
+    part.add_header('Content-Disposition', f"attachment; filename= {filename}")
+
+    msg.attach(part)
+
+    with smtplib.SMTP(server, port) as server:
+        server.starttls()  # Start a TLS session
+        server.login(login, app_password)
+        text = msg.as_string()
+        server.sendmail(sender_email, receiver_email, text)
+
 def track_app_usage():
     usage_records = []
     current_app_name = None
@@ -59,7 +89,10 @@ def track_app_usage():
                 })
 
                 if new_date != current_date:
-                    save_to_excel(usage_records, get_file_path())
+                    file_path = get_file_path()
+                    save_to_excel(usage_records, file_path)
+                    time.sleep(5)    # Send email with attachment after waiting for 5 seconds
+                    send_email_with_attachment(email['sender_email'], email['receiver_email'], 'Application Usage', 'Please find attached your application usage report.', file_path, 'smtp.gmail.com', 587, email['login'], email['app_password'])                    
                     usage_records = []
                     current_date = new_date
 
@@ -76,7 +109,6 @@ def track_app_usage():
         print("Stopping application tracking...")
         if usage_records:
             save_to_excel(usage_records, get_file_path())
-
 
 def save_to_excel(data, file_path):
     df = pd.DataFrame(data)
